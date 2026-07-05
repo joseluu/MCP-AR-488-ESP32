@@ -23,7 +23,7 @@ If you consider making it check the photos in the docs subdirectory. The gerber 
 
 The ESP32 USB can power the whole board, if you use it this way, no need to populate the barrel jack connector and power supply conditioning part (it has not been tested)
 
-See file [IMPROVEMENTS_V2.md](IMPROVEMENTS_V2.md) for further improvements (which I may never implement myself)
+See file [IMPROVEMENTS_V2.md](hardware/IMPROVEMENTS_V2.md) for further improvements (which I may never implement myself)
 
 ## Design workflow and caveats
 
