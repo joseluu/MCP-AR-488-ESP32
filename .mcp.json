@@ -10,12 +10,17 @@
     },
     "tek-tds784a": {
       "command": "uv",
-      "args": ["run", "python", "-m", "mcp_server"],
+      "args": [
+        "run",
+        "--project", "C:/Users/josel/hobby_w/CircuitSynthProjects/AR-488-ESP32",
+        "python", "-m", "mcp_server"
+      ],
       "cwd": "C:/Users/josel/hobby_w/CircuitSynthProjects/AR-488-ESP32/host_software",
       "env": {
-        "AR488_HOST": "192.168.11.175",
+        "AR488_HOST": "192.168.11.235",
         "AR488_ADDR": "1",
-        "AR488_TIMEOUT_MS": "2000"
+        "AR488_TIMEOUT_MS": "2000",
+        "PYTHONPATH": "C:/Users/josel/hobby_w/CircuitSynthProjects/AR-488-ESP32/host_software"
       }
     }
   }

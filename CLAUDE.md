@@ -75,6 +75,12 @@ If `route_pad_to_pad` reports success but the trace doesn't appear after revert,
 # Use pad positions from get_component_pads, net code from get_nets_list
 ```
 
+## Oscilloscope MCP Server (tek-tds784a)
+
+A Tektronix TDS784A is reachable through this board's own GPIB gateway. The `tek-tds784a` MCP server (`host_software/mcp_server/`) exposes 25 tools (setup state, acquisition, vertical/horizontal/trigger, measurements, waveform, screen capture) over SCPI/GPIB. It's registered in this repo's `.mcp.json` (env: `AR488_HOST`, `AR488_ADDR`, `AR488_TIMEOUT_MS`) — sessions started in/under this project get the tools automatically; other projects on the same machine don't unless the `.mcp.json` entry is copied over.
+
+See the `scope` skill (`~/.claude/skills/scope/SKILL.md`) for the full tool surface, measurement-stats decision tree, and quick recipes.
+
 ## Net Classes
 
 Power nets (`/DC_7-12V`, `/LDO_IN`, `GND`, `+5V`, `+3V3`) are assigned to the **Power** net class in the .kicad_pro file: 0.6mm track width (3x default), 0.3mm clearance, 0.8mm via diameter.

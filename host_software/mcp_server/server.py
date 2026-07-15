@@ -30,7 +30,31 @@ from request_gpib import (
 
 from .client import GpibClient
 
-mcp = FastMCP("tek-tds784a")
+_INSTRUCTIONS = """\
+TDS784A acquisition model: the scope stores a fixed 50 points per DIVISION,
+and records >500 pts span MORE than the 10 visible divisions (menu reads
+"15000 points in 300divs"). Sample interval = (s/div)/50 — NOT
+(10*s/div)/record_length (wrong by 10-30x). To target a resolution, set
+s/div = 50 * dt_wanted (e.g. 40ns/sample -> 2us/div); record_length only
+extends the captured duration. Screen shows only 500 pts — never judge a
+record by the screen. Always confirm actual dt from the returned preamble
+XINCR/time_s. SAMPLE vs HIRES does not change this rate rule; use SAMPLE
+for logic decoding. HORIZONTAL:TRIGGER:POSITION positions the trigger in
+the FULL record (PT_OFF), not on screen.
+
+get_waveform ARMS A NEW acquisition and destroys any frozen capture — to
+read an already-captured record non-destructively (or for bulk transfers
+that exceed tool output limits), use host_software/request_gpib.py
+--waveform instead (reads DATA/CURVE only, writes CSV).
+
+SCPI gotchas (v4.1e): send ONE command per raw_scpi call (compound ';:'
+chains throw header error 110); SELECT:CHn ON is required before reading a
+channel (else error 2241 / capture failed); prefer DC trigger coupling for
+slow signals (AC false-triggers on HF ripple); error 531 means the
+DATA:START/STOP window exceeds record_length.
+"""
+
+mcp = FastMCP("tek-tds784a", instructions=_INSTRUCTIONS)
 client = GpibClient()
 
 
