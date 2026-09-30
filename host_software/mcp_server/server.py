@@ -8,6 +8,7 @@ import asyncio
 import base64
 import io
 import json
+import os
 import re
 import statistics
 import time
@@ -26,6 +27,7 @@ from request_gpib import (
     parse_ieee_block,
     parse_wfmpre,
     query_value,
+    write_multi_csv,
 )
 
 from .client import GpibClient
@@ -43,15 +45,21 @@ for logic decoding. HORIZONTAL:TRIGGER:POSITION positions the trigger in
 the FULL record (PT_OFF), not on screen.
 
 get_waveform ARMS A NEW acquisition and destroys any frozen capture — to
-read an already-captured record non-destructively (or for bulk transfers
-that exceed tool output limits), use host_software/request_gpib.py
---waveform instead (reads DATA/CURVE only, writes CSV).
+read an already-captured record non-destructively, use read_frozen_waveform
+(reads DATA/CURVE only; defaults to the FULL record; writes a CSV to disk
+and returns its path, so large records don't blow tool output limits).
+For event-detection loops where you must interleave other actions while
+the scope waits for a trigger, use arm_single + check_triggered instead of
+the blocking arm_single_and_wait.
 
-SCPI gotchas (v4.1e): send ONE command per raw_scpi call (compound ';:'
-chains throw header error 110); SELECT:CHn ON is required before reading a
-channel (else error 2241 / capture failed); prefer DC trigger coupling for
-slow signals (AC false-triggers on HF ripple); error 531 means the
-DATA:START/STOP window exceeds record_length.
+SCPI gotchas (v4.1e via AR-488 gateway): ';'/';:' chaining works for SHORT
+compounds (the arming pair is proven) but chains >~100 chars fail with
+header error 110 — suspected gateway input-buffer limit, so split long
+setups into one command per raw_scpi call (set_setup_state's multi-KB
+replay is untested and may be affected); SELECT:CHn ON is required before
+reading a channel (else error 2241 / capture failed); prefer DC trigger
+coupling for slow signals (AC false-triggers on HF ripple); error 531
+means the DATA:START/STOP window exceeds record_length.
 """
 
 mcp = FastMCP("tek-tds784a", instructions=_INSTRUCTIONS)
@@ -1031,6 +1039,140 @@ async def get_waveform(
         "samples_per_channel": samples_per_channel,
         "errors_after": await drain_errors(),
     }
+
+
+@mcp.tool()
+async def read_frozen_waveform(
+    channels: list[str],
+    start_idx: Optional[int] = None,
+    end_idx: Optional[int] = None,
+    width: int = 2,
+    chunk_bytes: int = 32768,
+    save_csv: bool = True,
+    out_dir: Optional[str] = None,
+    inline_max_points: int = 1000,
+) -> dict:
+    """Read the CURRENT acquisition memory WITHOUT re-arming. This is the
+    non-destructive counterpart of get_waveform: safe on a frozen/stopped
+    capture that must not be lost (get_waveform arms a new acquisition and
+    would overwrite it).
+
+    - Window defaults to the FULL record (queried via HORIZONTAL:RECORDLENGTH?),
+      not a fixed 5000 points.
+    - Large reads are saved to a CSV (path returned in `csv_path`) instead of
+      being inlined; voltage/time arrays are inlined only when the window is
+      <= inline_max_points samples. Per-channel summaries (n, preamble,
+      v_min/v_max) are always returned.
+    - out_dir defaults to ~/scope_captures (created if missing).
+
+    Note: if the acquisition is still RUNNING, channels are read sequentially
+    and may come from different trigger events — STOP first (or use
+    get_waveform) when cross-channel consistency matters."""
+    if width not in (1, 2):
+        return {"ok": False, "error": "width must be 1 or 2"}
+    if not channels:
+        return {"ok": False, "error": "channels list is required"}
+
+    chans = [_ch_token(c) for c in channels]
+    capture_time = datetime.now()
+
+    await _write("VERBOSE ON")
+
+    if end_idx is None:
+        rl_meta = await _query("HORIZONTAL:RECORDLENGTH?")
+        rl = _to_float(_strip_header(rl_meta.get("data", ""))) if _ok(rl_meta) else None
+        end_idx = int(rl) if rl else 5000
+
+    args = SimpleNamespace(
+        addr=client.addr,
+        timeout=client.timeout_ms,
+        width=width,
+        points=end_idx,
+        start_index=start_idx,
+        end_index=end_idx,
+        chunk_bytes=chunk_bytes,
+    )
+
+    metadata = await client.with_ws(collect_metadata, args, chans, capture_time)
+
+    captures = []
+    out_channels: dict[str, dict] = {}
+    for ch in chans:
+        cap = await client.with_ws(capture_channel, ch, args, True)
+        if cap is None:
+            return {
+                "ok": False,
+                "error": f"read failed for {ch} (is the channel displayed? "
+                         f"SELECT:{ch} ON is required)",
+                "errors_after": await drain_errors(),
+            }
+        captures.append(cap)
+        pre = cap.get("preamble") or {}
+        entry: dict[str, Any] = {
+            "n": len(cap["samples"]),
+            "preamble": pre,
+            "start_idx": cap["start_idx"],
+            "end_idx": cap["end_idx"],
+        }
+        if pre:
+            ymult, yoff, yzero = pre["YMULT"], pre["YOFF"], pre["YZERO"]
+            volts = [(s - yoff) * ymult + yzero for s in cap["samples"]]
+            entry["v_min"] = min(volts)
+            entry["v_max"] = max(volts)
+            if len(volts) <= inline_max_points:
+                xincr, xzero, pt_off = pre["XINCR"], pre["XZERO"], pre["PT_OFF"]
+                entry["voltage_v"] = volts
+                entry["time_s"] = [(i + 1 - pt_off) * xincr + xzero
+                                   for i in range(len(volts))]
+        out_channels[ch] = entry
+
+    csv_path = None
+    if save_csv:
+        directory = out_dir or os.path.join(os.path.expanduser("~"), "scope_captures")
+        os.makedirs(directory, exist_ok=True)
+        csv_path = os.path.join(
+            directory, f"{iso_stamp(capture_time)}_frozen.csv")
+        write_multi_csv(csv_path, captures, metadata)
+
+    return {
+        "ok": True,
+        "metadata": metadata,
+        "channels": out_channels,
+        "csv_path": csv_path,
+        "samples_per_channel": min(len(c["samples"]) for c in captures),
+        "errors_after": await drain_errors(),
+    }
+
+
+@mcp.tool()
+async def arm_single() -> dict:
+    """Arm a single-sequence acquisition and return IMMEDIATELY (no wait).
+    Non-blocking counterpart of arm_single_and_wait: use it when other
+    actions must be interleaved while the scope waits for its trigger
+    (e.g. commanding the device under test), then poll check_triggered.
+
+    Sends ACQUIRE:STOPAFTER SEQUENCE + ACQUIRE:STATE RUN."""
+    for cmd in ("ACQUIRE:STOPAFTER SEQUENCE", "ACQUIRE:STATE RUN"):
+        m = await _write(cmd)
+        if not _ok(m):
+            return {"ok": False, "error": f"{cmd}: {_err(m)}",
+                    "errors_after": await drain_errors()}
+    return {"ok": True, "errors_after": await drain_errors()}
+
+
+@mcp.tool()
+async def check_triggered() -> dict:
+    """Non-blocking poll of a pending single-sequence acquisition.
+
+    Returns {triggered: True} when ACQUIRE:STATE reads 0 (sequence complete,
+    record frozen — read it with read_frozen_waveform), {triggered: False}
+    while still armed/waiting. Read-only: does not drain errors, safe to
+    call in a tight loop."""
+    meta = await _query("ACQUIRE:STATE?")
+    if not _ok(meta):
+        return {"ok": False, "error": _err(meta)}
+    text = _strip_header(meta.get("data", ""))
+    return {"ok": True, "triggered": text.strip().startswith("0"), "raw": text}
 
 
 # ------------------------------------------------------------ 7. Screen
