@@ -1,4 +1,0 @@
-[submodule "circuit-synth"]
-	path = circuit-synth
-	url = git@github.com:joseluu/circuit-synth.git
-	branch = fix/windows-utf8-file-write
