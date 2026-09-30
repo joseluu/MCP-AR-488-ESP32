@@ -178,6 +178,50 @@ options:
                         written.
 ```
 
+## Claude Code integration (MCP server + skill)
+
+This repo hosts the `tek-tds784a` MCP server (`host_software/mcp_server/`, exposes the scope over SCPI/GPIB) and the `scope` Claude Code skill that documents it (`scope/SKILL.md`).
+
+**Setup on a new machine:**
+
+```bash
+git clone https://github.com/joseluu/MCP-AR-488-ESP32.git ~/hobby_w/MCP-AR-488-ESP32
+cd ~/hobby_w/MCP-AR-488-ESP32
+uv sync
+```
+
+Link the skill into Claude Code's skills directory:
+
+**Linux/macOS:**
+```bash
+ln -s ~/hobby_w/MCP-AR-488-ESP32/scope ~/.claude/skills/scope
+```
+
+**Windows (cmd, no admin required):**
+```cmd
+mklink /J "%USERPROFILE%\.claude\skills\scope" "%USERPROFILE%\hobby_w\MCP-AR-488-ESP32\scope"
+```
+
+Then register the MCP server in that machine's `.mcp.json` (paths are machine-specific, adjust accordingly):
+
+```json
+{
+  "mcpServers": {
+    "tek-tds784a": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/MCP-AR-488-ESP32", "python", "-m", "mcp_server"],
+      "cwd": "/path/to/MCP-AR-488-ESP32/host_software",
+      "env": {
+        "AR488_HOST": "<gateway ip>",
+        "AR488_ADDR": "1",
+        "AR488_TIMEOUT_MS": "2000",
+        "PYTHONPATH": "/path/to/MCP-AR-488-ESP32/host_software"
+      }
+    }
+  }
+}
+```
+
 ## License
 
 MIT

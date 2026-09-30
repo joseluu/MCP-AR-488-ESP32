@@ -4,43 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-AR-488-ESP32 is a GPIB/IEEE-488 interface PCB for the Tektronix TDS784A oscilloscope. The schematic is written in Python using circuit-synth, generating KiCad 9 project files. PCB layout is done in KiCad with AI assistance via the MCP server.
+AR-488-ESP32 is a GPIB/IEEE-488 interface PCB for the Tektronix TDS784A oscilloscope. Schematic and PCB layout are edited directly in KiCad 9 with AI assistance via the MCP server. (Earlier revisions of the schematic were generated from Python via circuit-synth; that workflow has been retired.)
 
 The architecture (hybrid GPIO, transceiver choices, power path, MCP23017-at-3.3V rationale) is documented in `README.md`. Read it before changing the schematic — most "why is X like that?" answers are there.
 
 ## Repo Layout
 
-- `circuit-synth/` — **Git submodule** (fork `joseluu/circuit-synth`, branch `fix/windows-utf8-file-write`). Contains Windows UTF-8 fixes not yet merged upstream.
-- `circuit-synth/main.py` — Circuit description (Python, circuit-synth API). The only file in the submodule we treat as project source.
-- `AR488_ESP32/` — Generated KiCad project (.kicad_sch, .kicad_pro, .kicad_pcb, netlist)
+- `AR488_ESP32/` — KiCad project (.kicad_sch, .kicad_pro, .kicad_pcb, netlist)
 - `AR488_ESP32/libs/` — Custom symbols (`AR488_custom.kicad_sym`), footprints (`AR488_custom.pretty/`), 3D models (`AR488_custom.3dshapes/`)
 - `AR488_ESP32/Elecrow_manufacturing_v*/` — Gerber output for fab, named by manufacturing revision
 - `firmware/` — ESP32 firmware (in progress)
 - `docs/` — Project notes (`a_faire.md` for TODO, `TECHNICAL_INFORMATIONS.md`, board photo)
+- `scope/` — The `scope` Claude Code skill, versioned here (see "Oscilloscope MCP Server" below)
 - `.mcp.json` — KiCad MCP server config (paths are absolute and machine-specific; do not commit changes that aren't portable for this user)
 
 ## First-Time Setup
 
 ```bash
-git submodule update --init     # circuit-synth fork
-uv sync                          # creates .venv with editable circuit-synth
+uv sync
 ```
-
-`pyproject.toml` references the submodule via `[tool.uv.sources] circuit-synth = { path = "circuit-synth", editable = true }`. Note that `.python-version` pins 3.13 while `pyproject.toml` allows `>=3.12` — uv will pick 3.13 if available.
-
-## Schematic Generation
-
-Always run from the **project root** (paths below assume that):
-
-```bash
-export KICAD_SYMBOL_DIR="C:/Program Files/KiCad/9.0/share/kicad/symbols;$(pwd)/AR488_ESP32/libs"
-export PYTHONIOENCODING=utf-8
-uv run python circuit-synth/main.py
-```
-
-**Known issue:** Incremental sync fails with `PowerSymbolLabel has no attribute 'uuid'`. Fix: temporarily add `force_regenerate=True` to `generate_kicad_project()`, run, then remove it. Always remove before committing.
-
-**Post-processing:** The script patches the generated .kicad_sch with regex to set A4 paper size and title block (rev, date) at the bottom of `main.py` — circuit-synth API doesn't expose these. Bump the `rev` string here at each design change.
 
 ## KiCad MCP Server (PCB editor)
 
@@ -79,7 +61,7 @@ If `route_pad_to_pad` reports success but the trace doesn't appear after revert,
 
 A Tektronix TDS784A is reachable through this board's own GPIB gateway. The `tek-tds784a` MCP server (`host_software/mcp_server/`) exposes 25 tools (setup state, acquisition, vertical/horizontal/trigger, measurements, waveform, screen capture) over SCPI/GPIB. It's registered in this repo's `.mcp.json` (env: `AR488_HOST`, `AR488_ADDR`, `AR488_TIMEOUT_MS`) — sessions started in/under this project get the tools automatically; other projects on the same machine don't unless the `.mcp.json` entry is copied over.
 
-See the `scope` skill (`~/.claude/skills/scope/SKILL.md`) for the full tool surface, measurement-stats decision tree, and quick recipes.
+See the `scope` skill (versioned in this repo at `scope/SKILL.md`, linked into `~/.claude/skills/scope` — see README "Claude Code integration") for the full tool surface, measurement-stats decision tree, and quick recipes.
 
 ## Net Classes
 
@@ -88,7 +70,7 @@ Power nets (`/DC_7-12V`, `/LDO_IN`, `GND`, `+5V`, `+3V3`) are assigned to the **
 ## Versioning
 
 Two distinct version numbers:
-- **Schematic rev** — `rev "X.Y"` in `circuit-synth/main.py` post-processing block. Bump on each design change and commit.
+- **Schematic rev** — `rev "X.Y"` in the title block, edited directly in KiCad. Bump on each design change and commit.
 - **Manufacturing rev** — directory name `AR488_ESP32/Elecrow_manufacturing_vX.Y/` (and matching `.zip`). Bump only when sending a new fab batch.
 
 These can drift (e.g., schematic v0.4 with manufacturing v1.1) — that's expected.
