@@ -5,7 +5,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "circuit-synth",
     "websockets",
     "pillow",
     "mcp[cli]",
@@ -13,9 +12,6 @@ dependencies = [
 
 [project.scripts]
 tektool = "host_software.tektool.cli:main"
-
-[tool.uv.sources]
-circuit-synth = { path = "circuit-synth", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["host_software/tektool/tests"]
