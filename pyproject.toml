@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "websockets",
     "pillow",
-    "mcp[cli]",
+    "mcp[cli]<2",
 ]
 
 [project.scripts]
